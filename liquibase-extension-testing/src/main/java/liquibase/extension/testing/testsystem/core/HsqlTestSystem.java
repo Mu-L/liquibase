@@ -2,10 +2,6 @@ package liquibase.extension.testing.testsystem.core;
 
 import liquibase.extension.testing.testsystem.DatabaseTestSystem;
 import liquibase.extension.testing.testsystem.wrapper.DatabaseWrapper;
-import liquibase.extension.testing.testsystem.wrapper.JdbcDatabaseWrapper;
-import org.jetbrains.annotations.NotNull;
-
-import java.sql.SQLException;
 
 public class HsqlTestSystem extends DatabaseTestSystem {
 
@@ -29,11 +25,4 @@ public class HsqlTestSystem extends DatabaseTestSystem {
         };
     }
 
-    //    @Override
-//    public Connection openConnection() throws SQLException {
-//        return DriverManager.getConnection("jdbc:h2:mem:"+getProperty("catalog", String.class),
-//                getProperty("username", String.class, true),
-//                getProperty("password", String.class)
-//        );
-//    }
 }

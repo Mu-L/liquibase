@@ -8,7 +8,7 @@ CommandTests.define {
 Short Description: Rollback changes made to the database based on the specific tag
 Long Description: NOT SET
 Required Args:
-  changelogFile (String) The root changelog
+  changelogFile (String) The root changelog file
   tag (String) Tag to rollback to
   url (String) The JDBC database connection URL
     OBFUSCATED
@@ -17,7 +17,7 @@ Optional Args:
     Default: null
   changeExecListenerPropertiesFile (String) Path to a properties file for the ChangeExecListenerClass
     Default: null
-  contexts (String) Changeset contexts to match
+  contextFilter (String) Context string to use for filtering
     Default: null
   defaultCatalogName (String) The default catalog name to use for the database connection
     Default: null
@@ -27,13 +27,15 @@ Optional Args:
     Default: null
   driverPropertiesFile (String) The JDBC driver properties file
     Default: null
-  labelFilter (String) Changeset labels to match
+  labelFilter (String) Label expression to use for filtering
     Default: null
   password (String) Password to use to connect to the database
     Default: null
     OBFUSCATED
   rollbackScript (String) Rollback script to execute
     Default: null
+  tagVersion (String) Tag version to use for multiple occurrences of a tag
+    Default: OLDEST
   username (String) Username to use to connect to the database
     Default: null
 """
@@ -44,16 +46,12 @@ Optional Args:
                 username:   { it.username },
                 password:   { it.password },
                 tag          : "version_2.0",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
         ]
 
         setup {
-            runChangelog "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+            runChangelog "changelogs/h2/complete/rollback.tag.changelog.xml"
         }
-
-        expectedResults = [
-                statusCode   : 0
-        ]
     }
 
     run "Run without any arguments should throw an exception",  {
@@ -66,7 +64,7 @@ Optional Args:
 
     run "Run without a tag should throw an exception",  {
         arguments = [
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
                 tag          : ""
         ]
         expectedException = CommandValidationException.class
@@ -82,7 +80,7 @@ Optional Args:
     run "Run without a URL should throw an exception",  {
         arguments = [
                 url          : "",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
                 tag          : "version_2.0"
         ]
         expectedException = CommandValidationException.class

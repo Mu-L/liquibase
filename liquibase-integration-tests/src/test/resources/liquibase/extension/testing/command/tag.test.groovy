@@ -1,6 +1,8 @@
 package liquibase.extension.testing.command
 
+
 import liquibase.exception.CommandValidationException
+import liquibase.util.TestUtil
 
 CommandTests.define {
     command = ["tag"]
@@ -35,9 +37,9 @@ Optional Args:
                 tag: "version_2.0"
         ]
 
-        expectedResults = [
-                statusCode   : 0
-        ]
+        expectations = {
+            TestUtil.assertAllDeploymentIdsNonNull()
+        }
     }
 
     run "Run without a tag should throw an exception",  {

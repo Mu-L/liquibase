@@ -15,7 +15,7 @@ Required Args:
   url (String) The JDBC database connection URL
     OBFUSCATED
 Optional Args:
-  contexts (String) Context string to use for filtering which changes to mark as executed
+  contextFilter (String) Context string to use for filtering
     Default: null
   defaultCatalogName (String) The default catalog name to use for the database connection
     Default: null
@@ -25,16 +25,16 @@ Optional Args:
     Default: null
   driverPropertiesFile (String) The JDBC driver properties file
     Default: null
-  labelFilter (String) Label expression to use for filtering which changes to mark as executed
+  labelFilter (String) Label expression to use for filtering
     Default: null
   outputDefaultCatalog (Boolean) Control whether names of objects in the default catalog are fully qualified or not. If true they are. If false, only objects outside the default catalog are fully qualified
     Default: true
   outputDefaultSchema (Boolean) Control whether names of objects in the default schema are fully qualified or not. If true they are. If false, only objects outside the default schema are fully qualified
     Default: true
-  password (String) The database password
+  password (String) Password to use to connect to the database
     Default: null
     OBFUSCATED
-  username (String) The database username
+  username (String) Username to use to connect to the database
     Default: null
 """
 
@@ -43,7 +43,7 @@ Optional Args:
                 url : { it.url },
                 username: { it.username },
                 password: { it.password },
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml"
         ]
 
         setup {
@@ -75,9 +75,6 @@ Optional Args:
             ]
         }
 
-        expectedResults = [
-                statusCode   : 0
-        ]
     }
 
     run "Happy path with output SQL", {
@@ -85,7 +82,7 @@ Optional Args:
                 url : { it.url },
                 username: { it.username },
                 password: { it.password },
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml"
         ]
 
         setup {
@@ -126,16 +123,12 @@ Optional Args:
                 //
                 "target/test-classes/changelogSync.sql" : [CommandTests.assertContains("-- Release Database Lock")]
         ]
-
-        expectedResults = [
-                statusCode   : 0
-        ]
     }
 
     run "Run without URL should throw an exception",  {
         arguments = [
                 url: "",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml"
         ]
 
         expectedException = CommandValidationException.class

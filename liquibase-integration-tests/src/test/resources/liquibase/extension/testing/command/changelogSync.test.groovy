@@ -1,9 +1,11 @@
 package liquibase.extension.testing.command
 
+
 import liquibase.change.ColumnConfig
 import liquibase.change.core.CreateTableChange
 import liquibase.change.core.TagDatabaseChange
 import liquibase.exception.CommandValidationException
+import liquibase.util.TestUtil
 
 CommandTests.define {
     command = ["changelogSync"]
@@ -16,7 +18,7 @@ Required Args:
   url (String) The JDBC database connection URL
     OBFUSCATED
 Optional Args:
-  contexts (String) Context string to use for filtering which changes to mark as executed
+  contextFilter (String) Context string to use for filtering
     Default: null
   defaultCatalogName (String) The default catalog name to use for the database connection
     Default: null
@@ -26,12 +28,12 @@ Optional Args:
     Default: null
   driverPropertiesFile (String) The JDBC driver properties file
     Default: null
-  labelFilter (String) Label expression to use for filtering which changes to mark as executed
+  labelFilter (String) Label expression to use for filtering
     Default: null
-  password (String) The database password
+  password (String) Password to use to connect to the database
     Default: null
     OBFUSCATED
-  username (String) The database username
+  username (String) Username to use to connect to the database
     Default: null
 """
     run "Happy path", {
@@ -39,7 +41,7 @@ Optional Args:
             url              : { it.altUrl },
             username         : { it.altUsername },
             password         : { it.altPassword },
-            changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+            changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml"
         ]
 
         setup {
@@ -71,15 +73,15 @@ Optional Args:
             ]
         }
 
-        expectedResults = [
-                statusCode   : 0
-        ]
+        expectations = {
+            TestUtil.assertAllDeploymentIdsNonNull()
+        }
     }
 
     run "Run without URL should throw an exception",  {
         arguments = [
                 url: "",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml"
         ]
 
         expectedException = CommandValidationException.class

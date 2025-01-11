@@ -9,11 +9,13 @@ CommandTests.define {
 Short Description: Generates JavaDoc documentation for the existing database and changelogs
 Long Description: NOT SET
 Required Args:
-  changelogFile (String) The root changelog
+  changelogFile (String) The root changelog file
   outputDirectory (String) The directory where the documentation is generated
   url (String) The JDBC database connection URL
     OBFUSCATED
 Optional Args:
+  contextFilter (String) Context string to use for filtering
+    Default: null
   defaultCatalogName (String) The default catalog name to use for the database connection
     Default: null
   defaultSchemaName (String) The default schema name to use for the database connection
@@ -22,10 +24,14 @@ Optional Args:
     Default: null
   driverPropertiesFile (String) The JDBC driver properties file
     Default: null
-  password (String) The database password
+  labelFilter (String) Label expression to use for filtering
+    Default: null
+  password (String) Password to use to connect to the database
     Default: null
     OBFUSCATED
-  username (String) The database username
+  schemas (String) Database schemas to include objects from in reporting
+    Default: null
+  username (String) Username to use to connect to the database
     Default: null
 """
 
@@ -35,7 +41,7 @@ Optional Args:
                 username:   { it.username },
                 password:   { it.password },
                 outputDirectory: "target/test-classes",
-                changelogFile  : "changelogs/hsqldb/complete/simple.changelog.xml",
+                changelogFile  : "changelogs/h2/complete/simple.changelog.xml",
         ]
 
         expectedResults = [
@@ -45,7 +51,7 @@ Optional Args:
 
     run "Run without an outputDirectory should throw an exception",  {
         arguments = [
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
                 outputDirectory: ""
         ]
         expectedException = CommandValidationException.class
@@ -61,7 +67,7 @@ Optional Args:
     run "Run without a URL should throw an exception",  {
         arguments = [
                 url          : "",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
                 outputDirectory: "version_2.0"
         ]
         expectedException = CommandValidationException.class

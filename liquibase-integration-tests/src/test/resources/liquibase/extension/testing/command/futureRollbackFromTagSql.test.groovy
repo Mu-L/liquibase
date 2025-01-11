@@ -8,12 +8,16 @@ CommandTests.define {
 Short Description: Generates SQL to revert future changes up to the specified tag
 Long Description: NOT SET
 Required Args:
-  changelogFile (String) The root changelog
+  changelogFile (String) The root changelog file
   tag (String) Tag ID to rollback from
   url (String) The JDBC database connection URL
     OBFUSCATED
 Optional Args:
-  contexts (String) Changeset contexts to match
+  changeExecListenerClass (String) Fully-qualified class which specifies a ChangeExecListener
+    Default: null
+  changeExecListenerPropertiesFile (String) Path to a properties file for the ChangeExecListenerClass
+    Default: null
+  contextFilter (String) Context string to use for filtering
     Default: null
   defaultCatalogName (String) The default catalog name to use for the database connection
     Default: null
@@ -23,7 +27,7 @@ Optional Args:
     Default: null
   driverPropertiesFile (String) The JDBC driver properties file
     Default: null
-  labelFilter (String) Changeset labels to match
+  labelFilter (String) Label expression to use for filtering
     Default: null
   outputDefaultCatalog (Boolean) Control whether names of objects in the default catalog are fully qualified or not. If true they are. If false, only objects outside the default catalog are fully qualified
     Default: true
@@ -41,18 +45,14 @@ Optional Args:
                 username     : { it.username },
                 password     : { it.password },
                 tag          : "version_2.0",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
         ]
 
 
         setup {
-            runChangelog "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
-            rollback 5, "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+            runChangelog "changelogs/h2/complete/rollback.tag.changelog.xml"
+            rollback 5, "changelogs/h2/complete/rollback.tag.changelog.xml"
         }
-
-        expectedResults = [
-                statusCode   : 0
-        ]
     }
 
     run "Happy path with an output file", {
@@ -61,13 +61,13 @@ Optional Args:
                 username     : { it.username },
                 password     : { it.password },
                 tag          : "version_2.0",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
         ]
 
         setup {
             cleanResources("target/test-classes/futureRollbackFromTag.sql")
-            runChangelog "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
-            rollback 5, "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+            runChangelog "changelogs/h2/complete/rollback.tag.changelog.xml"
+            rollback 5, "changelogs/h2/complete/rollback.tag.changelog.xml"
         }
 
         outputFile = new File("target/test-classes/futureRollbackFromTag.sql")
@@ -77,10 +77,6 @@ Optional Args:
                 // Find the " -- Release Database Lock" line
                 //
                 "target/test-classes/futureRollbackFromTag.sql" : [CommandTests.assertContains("-- Release Database Lock")]
-        ]
-
-        expectedResults = [
-                statusCode   : 0
         ]
     }
 
@@ -100,7 +96,7 @@ Optional Args:
 
     run "Run without a tag should throw an exception",  {
         arguments = [
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
         ]
         expectedException = CommandValidationException.class
     }
@@ -108,7 +104,7 @@ Optional Args:
     run "Run without a URL should throw an exception",  {
         arguments = [
                 url          : "",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
                 tag          : "version_2.0"
         ]
         expectedException = CommandValidationException.class
