@@ -16,7 +16,7 @@ Required Args:
   url (String) The JDBC database connection URL
     OBFUSCATED
 Optional Args:
-  contexts (String) Changeset contexts to match
+  contextFilter (String) Context string to use for filtering
     Default: null
   defaultCatalogName (String) The default catalog name to use for the database connection
     Default: null
@@ -26,12 +26,12 @@ Optional Args:
     Default: null
   driverPropertiesFile (String) The JDBC driver properties file
     Default: null
-  labelFilter (String) Changeset labels to match
+  labelFilter (String) Label expression to use for filtering
     Default: null
-  password (String) The database password
+  password (String) Password to use to connect to the database
     Default: null
     OBFUSCATED
-  username (String) The database username
+  username (String) Username to use to connect to the database
     Default: null
 """
 
@@ -41,7 +41,7 @@ Optional Args:
                 username:   { it.username },
                 password:   { it.password },
                 tag          : "version_2.0",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml"
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml"
         ]
 
 
@@ -74,9 +74,6 @@ Optional Args:
             ]
         }
 
-        expectedResults = [
-                statusCode   : 0
-        ]
     }
 
     run "Run without any arguments should throw an exception",  {
@@ -89,7 +86,7 @@ Optional Args:
 
     run "Run without a tag should throw an exception",  {
         arguments = [
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
                 tag          : ""
         ]
         expectedException = CommandValidationException.class
@@ -105,7 +102,7 @@ Optional Args:
     run "Run without a URL should throw an exception",  {
         arguments = [
                 url          : "",
-                changelogFile: "changelogs/hsqldb/complete/rollback.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/rollback.tag.changelog.xml",
                 tag          : "version_2.0"
         ]
         expectedException = CommandValidationException.class

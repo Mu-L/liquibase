@@ -9,6 +9,7 @@ import liquibase.plugin.Plugin;
 import liquibase.servicelocator.ServiceLocator;
 import liquibase.util.CollectionUtil;
 import liquibase.util.StringUtil;
+import liquibase.util.SystemUtil;
 import org.junit.Assume;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
@@ -33,10 +34,11 @@ public abstract class TestSystem implements TestRule, Plugin {
     private static final SortedSet<TestSystem.Definition> testSystems = new TreeSet<>();
     private static final String configuredTestSystems;
     private static final String skippedTestSystems;
+    private static final Pattern COMPILE = Pattern.compile("(\\$\\{.+?})");
 
     private final Definition definition;
 
-    private final SortedSet<String> configurationKeys = new TreeSet<>(Arrays.asList(
+    private final SortedSet<String> configurationKeys = new TreeSet<>(Collections.singletonList(
             "keepRunning"
     ));
 
@@ -69,6 +71,10 @@ public abstract class TestSystem implements TestRule, Plugin {
         if (StringUtil.isNotEmpty(skippedTestSystems)) {
             List<String> skippedTestSystemsList = CollectionUtil.createIfNull(StringUtil.splitAndTrim(skippedTestSystems, ","));
             returnList = returnList.stream().filter(ts -> !skippedTestSystemsList.contains(ts)).collect(Collectors.toList());
+        }
+
+        if (!SystemUtil.isAtLeastJava11()) {
+            returnList = returnList.stream().filter(ts -> !"hsqldb".equals(ts)).collect(Collectors.toList());
         }
         return returnList;
     }
@@ -196,7 +202,7 @@ public abstract class TestSystem implements TestRule, Plugin {
     public <T> T getConfiguredValue(String propertyName, ConfigurationValueConverter<T> converter, boolean required) {
         ConfigurationValueConverter<T> finalConverter = value -> {
             if (value instanceof String && ((String) value).contains("${")) {
-                final Matcher matcher = Pattern.compile("(\\$\\{.+?})").matcher((String) value);
+                final Matcher matcher = COMPILE.matcher((String) value);
                 while (matcher.find()) {
                     final String config = matcher.group(1).replace("${", "").replace("}", "").trim();
                     value = ((String) value).replace(matcher.group(1), getConfiguredValue(config, String.class));

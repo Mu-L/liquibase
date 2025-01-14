@@ -9,7 +9,7 @@ Short Description: Generate the SQL to deploy changes up to the tag
 Long Description: NOT SET
 Required Args:
   changelogFile (String) The root changelog
-  tag (String) The tag to genenerate SQL up to
+  tag (String) The tag to generate SQL up to
   url (String) The JDBC database connection URL
     OBFUSCATED
 Optional Args:
@@ -17,7 +17,7 @@ Optional Args:
     Default: null
   changeExecListenerPropertiesFile (String) Path to a properties file for the ChangeExecListenerClass
     Default: null
-  contexts (String) Changeset contexts to match
+  contextFilter (String) Changeset contexts to match
     Default: null
   defaultCatalogName (String) The default catalog name to use for the database connection
     Default: null
@@ -45,11 +45,13 @@ Optional Args:
                 username:   { it.username },
                 password:   { it.password },
                 tag          : "version_2.0",
-                changelogFile: "changelogs/hsqldb/complete/simple.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/simple.tag.changelog.xml",
         ]
 
         expectedResults = [
-                statusCode   : 0
+                statusCode   : 0,
+                defaultChangeExecListener: 'not_null',
+                updateReport: 'not_null'
         ]
     }
 
@@ -59,7 +61,7 @@ Optional Args:
                 username:   { it.username },
                 password:   { it.password },
                 tag          : "version_2.0",
-                changelogFile: "changelogs/hsqldb/complete/simple.changelog.xml"
+                changelogFile: "changelogs/h2/complete/simple.changelog.xml"
         ]
 
         setup {
@@ -76,14 +78,16 @@ Optional Args:
         ]
 
         expectedResults = [
-                statusCode   : 0
+                statusCode   : 0,
+                defaultChangeExecListener: 'not_null',
+                updateReport: 'not_null'
         ]
     }
 
     run "Run without a tag throws an exception", {
         arguments = [
                 url          : "",
-                changelogFile: "changelogs/hsqldb/complete/simple.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/simple.tag.changelog.xml",
         ]
         expectedException = CommandValidationException.class
     }
@@ -100,7 +104,7 @@ Optional Args:
         arguments = [
                 url          : "",
                 tag          : "version_2.0",
-                changelogFile: "changelogs/hsqldb/complete/simple.tag.changelog.xml",
+                changelogFile: "changelogs/h2/complete/simple.tag.changelog.xml",
         ]
         expectedException = CommandValidationException.class
     }

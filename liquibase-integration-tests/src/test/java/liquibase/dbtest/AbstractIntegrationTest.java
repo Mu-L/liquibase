@@ -1,40 +1,45 @@
 package liquibase.dbtest;
 
+import groovy.lang.Tuple2;
 import liquibase.*;
 import liquibase.change.ColumnConfig;
 import liquibase.change.core.LoadDataChange;
+import liquibase.change.custom.ExampleCustomTaskChange;
 import liquibase.changelog.ChangeLogHistoryServiceFactory;
 import liquibase.changelog.ChangeSet;
 import liquibase.changelog.DatabaseChangeLog;
+import liquibase.command.CommandResults;
+import liquibase.command.CommandScope;
+import liquibase.command.core.DropAllCommandStep;
+import liquibase.command.core.SnapshotCommandStep;
+import liquibase.command.core.UpdateCommandStep;
+import liquibase.command.core.helpers.DbUrlConnectionArgumentsCommandStep;
 import liquibase.database.Database;
 import liquibase.database.DatabaseConnection;
 import liquibase.database.DatabaseFactory;
-import liquibase.database.core.OracleDatabase;
-import liquibase.database.core.PostgresDatabase;
+import liquibase.database.core.*;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.datatype.DataTypeFactory;
-import liquibase.datatype.core.ClobType;
 import liquibase.diff.DiffGeneratorFactory;
 import liquibase.diff.DiffResult;
 import liquibase.diff.compare.CompareControl;
 import liquibase.diff.output.DiffOutputControl;
 import liquibase.diff.output.changelog.DiffToChangeLog;
 import liquibase.diff.output.report.DiffToReport;
-import liquibase.exception.ChangeLogParseException;
-import liquibase.exception.DatabaseException;
-import liquibase.exception.LiquibaseException;
-import liquibase.exception.ValidationFailedException;
+import liquibase.exception.*;
 import liquibase.executor.Executor;
 import liquibase.executor.ExecutorService;
 import liquibase.extension.testing.testsystem.DatabaseTestSystem;
 import liquibase.extension.testing.testsystem.TestSystemFactory;
-import liquibase.hub.HubConfiguration;
 import liquibase.listener.SqlListener;
 import liquibase.lockservice.LockService;
 import liquibase.lockservice.LockServiceFactory;
+import liquibase.logging.LogService;
 import liquibase.logging.Logger;
+import liquibase.logging.core.JavaLogService;
+import liquibase.precondition.core.RowCountPrecondition;
 import liquibase.precondition.core.TableExistsPrecondition;
-import liquibase.resource.FileSystemResourceAccessor;
+import liquibase.precondition.core.TableIsEmptyPrecondition;
 import liquibase.resource.ResourceAccessor;
 import liquibase.snapshot.DatabaseSnapshot;
 import liquibase.snapshot.SnapshotControl;
@@ -46,26 +51,26 @@ import liquibase.statement.core.DropTableStatement;
 import liquibase.structure.core.*;
 import liquibase.test.DiffResultAssert;
 import liquibase.test.JUnitResourceAccessor;
+import liquibase.util.ExceptionUtil;
 import liquibase.util.RegexMatcher;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.PrintStream;
-import java.io.StringWriter;
+import java.io.*;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static liquibase.test.SnapshotAssert.assertThat;
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Base class for all database integration tests.  There is an AbstractIntegrationTest subclass for each supported database.
@@ -73,10 +78,6 @@ import static org.junit.Assume.assumeNotNull;
  * at liquibase world headquarters.  Feel free to change the return value, but don't check it in.  We are going to improve the config of this at some point.
  */
 public abstract class AbstractIntegrationTest {
-
-    public static final String ALT_TABLESPACE = "LIQUIBASE2";
-    public static final String ALT_SCHEMA = "LBSCHEM2";
-    public static final String ALT_CATALOG = "LBCAT2";
 
     @Rule
     public DatabaseTestSystem testSystem;
@@ -88,17 +89,26 @@ public abstract class AbstractIntegrationTest {
     Set<String> emptySchemas = new TreeSet<>();
     Logger logger;
     private final String rollbackChangeLog;
+
+    private final String emptyRollbackSqlChangeLog;
     private final String includedChangeLog;
     private final String encodingChangeLog;
     private final String externalfkInitChangeLog;
     private final String invalidReferenceChangeLog;
+    private final String invalidSqlChangeLog;
     private final String objectQuotingStrategyChangeLog;
     private final String commonChangeLog;
+
+    private final String indexWithAssociatedWithChangeLog;
     private Database database;
     private String defaultSchemaName;
 
+    private final String pathChangeLog;
+
     protected AbstractIntegrationTest(String changelogDir, Database dbms) throws Exception {
-        this.testSystem = (DatabaseTestSystem) Scope.getCurrentScope().getSingleton(TestSystemFactory.class).getTestSystem(dbms.getShortName());
+        if (dbms != null) {
+            this.testSystem = (DatabaseTestSystem) Scope.getCurrentScope().getSingleton(TestSystemFactory.class).getTestSystem(dbms.getShortName());
+        }
 
         this.completeChangeLog = "changelogs/" + changelogDir + "/complete/root.changelog.xml";
         this.rollbackChangeLog = "changelogs/" + changelogDir + "/rollback/rollbackable.changelog.xml";
@@ -107,10 +117,14 @@ public abstract class AbstractIntegrationTest {
         this.commonChangeLog = "changelogs/common/common.tests.changelog.xml";
         this.externalfkInitChangeLog= "changelogs/common/externalfk.init.changelog.xml";
         this.invalidReferenceChangeLog= "changelogs/common/invalid.reference.changelog.xml";
+        this.invalidSqlChangeLog= "changelogs/common/invalid.sql.changelog.xml";
         this.objectQuotingStrategyChangeLog = "changelogs/common/object.quoting.strategy.changelog.xml";
+        this.emptyRollbackSqlChangeLog = "changelogs/common/rollbackable.changelog.sql";
+        this.pathChangeLog = "changelogs/common/pathChangeLog.xml";
+        this.indexWithAssociatedWithChangeLog = "changelogs/common/index.with.associatedwith.changelog.xml";
         logger = Scope.getCurrentScope().getLog(getClass());
 
-        Scope.setScopeManager(new TestScopeManager());
+        Scope.setScopeManager(new TestScopeManager(Scope.getCurrentScope()));
     }
 
     private void openConnection() throws Exception {
@@ -133,7 +147,8 @@ public abstract class AbstractIntegrationTest {
 
         if (database.supportsTablespaces()) {
             // Use the opportunity to test if the DATABASECHANGELOG table is placed in the correct tablespace
-            database.setLiquibaseTablespaceName(ALT_TABLESPACE);
+            String altTablespace = testSystem.getAltTablespace();
+            database.setLiquibaseTablespaceName(altTablespace);
         }
         if (!database.getConnection().getAutoCommit()) {
             database.rollback();
@@ -150,7 +165,7 @@ public abstract class AbstractIntegrationTest {
         LockServiceFactory.getInstance().resetAll();
         LockServiceFactory.getInstance().getLockService(database).init();
 
-        ChangeLogHistoryServiceFactory.getInstance().resetAll();
+        Scope.getCurrentScope().getSingleton(ChangeLogHistoryServiceFactory.class).resetAll();
     }
 
     /**
@@ -175,6 +190,7 @@ public abstract class AbstractIntegrationTest {
                     database.commit();
                 }
             } catch (SQLException e) {
+                logger.warning(String.format("Failed to drop table %s", database.getDatabaseChangeLogLockTableName()), e);
                 if (database instanceof PostgresDatabase) { // throws "current transaction is aborted" unless we roll back the connection
                     database.rollback();
                 }
@@ -186,12 +202,15 @@ public abstract class AbstractIntegrationTest {
                     database);
             SnapshotGeneratorFactory factory = SnapshotGeneratorFactory.getInstance();
 
-            if (database.supportsSchemas()) {
-                emptyTestSchema(null, ALT_SCHEMA, database);
+            String altSchema = testSystem.getAltSchema();
+            String altCatalog = testSystem.getAltCatalog();
+
+            if (database.supports(Schema.class)) {
+                emptyTestSchema(null, altSchema, database);
             }
             if (supportsAltCatalogTests()) {
-                if (database.supportsSchemas() && database.supportsCatalogs()) {
-                    emptyTestSchema(ALT_CATALOG, ALT_SCHEMA, database);
+                if (database.supports(Schema.class) && database.supports(Catalog.class)) {
+                    emptyTestSchema(altCatalog, altSchema, database);
                 }
             }
 
@@ -200,12 +219,12 @@ public abstract class AbstractIntegrationTest {
              * schemas AND (b) the RDBMS DOES support catalogs AND (c) someone uses "schemaName=..." in a
              * Liquibase ChangeSet. In this case, AbstractJdbcDatabase.escapeObjectName assumes the author
              * was intending to write "catalog=..." and transparently rewrites the expression.
-             * For us, this means that we have to wipe both ALT_SCHEMA and ALT_CATALOG to be sure we
+             * For us, this means that we have to wipe both altSchema and altCatalog to be sure we
              * are doing a thorough cleanup.
              */
             CatalogAndSchema[] alternativeLocations = new CatalogAndSchema[]{
-                new CatalogAndSchema(ALT_CATALOG, null),
-                new CatalogAndSchema(null, ALT_SCHEMA),
+                new CatalogAndSchema(altCatalog, null),
+                new CatalogAndSchema(null, altSchema),
                 new CatalogAndSchema("LBCAT2", database.getDefaultSchemaName()),
                 new CatalogAndSchema(null, "LBCAT2"),
                 new CatalogAndSchema("lbcat2", database.getDefaultSchemaName()),
@@ -247,7 +266,7 @@ public abstract class AbstractIntegrationTest {
     }
 
     protected boolean supportsAltCatalogTests() {
-        return database.supportsCatalogs();
+        return database.supports(Catalog.class);
     }
 
     protected Properties createProperties() {
@@ -264,8 +283,20 @@ public abstract class AbstractIntegrationTest {
             database.setDefaultSchemaName(null);
             database.setOutputDefaultCatalog(true);
             database.setOutputDefaultSchema(true);
+            try {
+                LockService lockService = LockServiceFactory.getInstance().getLockService(database);
+                lockService.releaseLock();
+            } catch (Exception ignored) {
+            }
+            try {
+                CommandScope commandScope = new CommandScope(DropAllCommandStep.COMMAND_NAME);
+                commandScope.addArgumentValue(DbUrlConnectionArgumentsCommandStep.DATABASE_ARG, database);
+                commandScope.execute();
+            } catch (Exception ignored) {
+            }
         }
         SnapshotGeneratorFactory.resetAll();
+        DatabaseObjectFactory.getInstance().reset();
     }
 
     protected boolean shouldRollBack() {
@@ -284,9 +315,21 @@ public abstract class AbstractIntegrationTest {
     }
 
     @Test
+    public void testEmptyRollbackableSqlChangeLog() throws Exception {
+        assumeNotNull(this.getDatabase());
+        createLiquibase(emptyRollbackSqlChangeLog);
+        clearDatabase();
+
+        Liquibase liquibase = createLiquibase(emptyRollbackSqlChangeLog);
+        liquibase.update(this.contexts);
+
+        liquibase = createLiquibase(emptyRollbackSqlChangeLog);
+        liquibase.rollback(new Date(0), this.contexts);
+    }
+
+    @Test
     public void testSnapshotReportsAllObjectTypes() throws Exception {
         assumeNotNull(this.getDatabase());
-
         runCompleteChangeLog();
         DatabaseSnapshot snapshot = SnapshotGeneratorFactory.getInstance().createSnapshot(getDatabase().getDefaultSchema(), getDatabase(), new SnapshotControl(getDatabase()));
 
@@ -345,6 +388,7 @@ public abstract class AbstractIntegrationTest {
     @SuppressWarnings("squid:S2699") // Successful execution qualifies as test success.
     public void testRunUpdateOnOldChangelogTableFormat() throws Exception {
         assumeNotNull(this.getDatabase());
+
         Liquibase liquibase = createLiquibase(completeChangeLog);
         clearDatabase();
 
@@ -526,21 +570,34 @@ public abstract class AbstractIntegrationTest {
     @SuppressWarnings("squid:S2699") // Successful execution qualifies as test success.
     public void testRollbackableChangeLog() throws Exception {
         assumeNotNull(this.getDatabase());
+        Map<String, Object> initialMap =  new HashMap<>();
+        initialMap.put(ExampleCustomTaskChange.COUNT_MAP_EXECUTE_CALL_COUNT, 0);
+        initialMap.put(ExampleCustomTaskChange.COUNT_MAP_ROLLBACK_CALL_COUNT, 0);
 
-        Liquibase liquibase = createLiquibase(rollbackChangeLog);
-        clearDatabase();
+        Scope.child(ExampleCustomTaskChange.SCOPE_ATTR_CALL_COUNT_MAP, initialMap, () -> {
+            Liquibase liquibase = createLiquibase(rollbackChangeLog);
+            clearDatabase();
 
-        liquibase = createLiquibase(rollbackChangeLog);
-        liquibase.update(this.contexts);
+            liquibase.update(this.contexts);
 
-        liquibase = createLiquibase(rollbackChangeLog);
-        liquibase.rollback(new Date(0), this.contexts);
+            Map<String, Object> map = Scope.getCurrentScope().get(ExampleCustomTaskChange.SCOPE_ATTR_CALL_COUNT_MAP, Map.class);
+            Integer executeCallCountInteger = (Integer) map.get(ExampleCustomTaskChange.COUNT_MAP_EXECUTE_CALL_COUNT);
+            Integer rollbackCallCount = (Integer)map.get(ExampleCustomTaskChange.COUNT_MAP_ROLLBACK_CALL_COUNT);
+            // call `execute` method
+            assertEquals(1, (int)executeCallCountInteger);
+            assertEquals(0, (int)rollbackCallCount);
 
-        liquibase = createLiquibase(rollbackChangeLog);
-        liquibase.update(this.contexts);
+            liquibase.rollback(new Date(0), this.contexts);
+            executeCallCountInteger = (Integer) map.get(ExampleCustomTaskChange.COUNT_MAP_EXECUTE_CALL_COUNT) ;
+            rollbackCallCount = (Integer)map.get(ExampleCustomTaskChange.COUNT_MAP_ROLLBACK_CALL_COUNT);
+            // call `rollback` method
+            assertEquals(1, (int)executeCallCountInteger);
+            assertEquals(1, (int)rollbackCallCount);
 
-        liquibase = createLiquibase(rollbackChangeLog);
-        liquibase.rollback(new Date(0), this.contexts);
+            liquibase.update(this.contexts);
+
+            liquibase.rollback(new Date(0), this.contexts);
+        });
     }
 
     @Test
@@ -577,6 +634,7 @@ public abstract class AbstractIntegrationTest {
     @Test
     @SuppressWarnings("squid:S2699") // Successful execution qualifies as test success.
     public void testTag() throws Exception {
+        //This test will validate a tag can be set successfully to the DB, plus make sure the given tag exists in the DB.
         assumeNotNull(this.getDatabase());
 
         Liquibase liquibase = createLiquibase(completeChangeLog);
@@ -587,6 +645,7 @@ public abstract class AbstractIntegrationTest {
         liquibase.update(this.contexts);
 
         liquibase.tag("Test Tag");
+        assertTrue(liquibase.tagExists("Test Tag"));
     }
 
     @Test
@@ -601,7 +660,7 @@ public abstract class AbstractIntegrationTest {
         DiffResult diffResult = DiffGeneratorFactory.getInstance().compare(database, database, compareControl);
 
         try {
-            assertTrue("comapring a database with itself should return a result of 'DBs are equal'",
+            assertTrue("comparing a database with itself should return a result of 'DBs are equal'",
                     diffResult.areEqual());
         } catch (AssertionError e) {
             new DiffToReport(diffResult, System.err).print();
@@ -631,18 +690,16 @@ public abstract class AbstractIntegrationTest {
             if (database instanceof PostgresDatabase) {
                 compareControl.addSuppressedField(Column.class, "type"); //database returns different nvarchar2 info even though they are the same
             }
-
-            DiffOutputControl diffOutputControl = new DiffOutputControl();
-            File tempFile = tempDirectory.getRoot().createTempFile("liquibase-test", ".xml");
-
-            if (outputCsv) {
-                diffOutputControl.setDataDir(new File(tempFile.getParentFile(), "liquibase-data").getCanonicalPath().replaceFirst("\\w:",""));
+            if (database instanceof H2Database) {
+                //original changeset 2659-Create-MyView-with-quotes in the h2 changelog uses QUOTE_ALL_OBJECTS, but generated changesets do not use that attribute so the name comes through as different
+                compareControl.addSuppressedField(View.class, "name");
             }
 
+            File tempFile = tempDirectory.getRoot().createTempFile("liquibase-test", ".xml");
             DiffResult diffResult = DiffGeneratorFactory.getInstance().compare(database, null, compareControl);
 
 
-            FileOutputStream output = new FileOutputStream(tempFile);
+            OutputStream output = Files.newOutputStream(tempFile.toPath());
             try {
                 new DiffToChangeLog(diffResult, new DiffOutputControl()).print(new PrintStream(output));
                 output.flush();
@@ -709,7 +766,7 @@ public abstract class AbstractIntegrationTest {
         if (database.getShortName().equalsIgnoreCase("mssql")) {
             return; // not possible on MSSQL.
         }
-        if (!database.supportsSchemas()) {
+        if (!database.supports(Schema.class)) {
             return;
         }
 
@@ -737,13 +794,11 @@ public abstract class AbstractIntegrationTest {
         DiffResult diffResult = DiffGeneratorFactory.getInstance().compare(database, null, compareControl);
 
         File tempFile = File.createTempFile("liquibase-test", ".xml");
+        tempFile.deleteOnExit();
 
-        FileOutputStream output = new FileOutputStream(tempFile);
-        try {
+        try (FileOutputStream output = new FileOutputStream(tempFile)) {
             new DiffToChangeLog(diffResult, new DiffOutputControl()).print(new PrintStream(output));
             output.flush();
-        } finally {
-            output.close();
         }
 
         liquibase = createLiquibase(tempFile.getName());
@@ -796,9 +851,6 @@ public abstract class AbstractIntegrationTest {
         clearDatabase();
 
         liquibase = createLiquibase(completeChangeLog);
-        clearDatabase();
-
-        liquibase = createLiquibase(completeChangeLog);
         liquibase.setChangeLogParameter( "loginuser", testSystem.getUsername());
         liquibase.update(this.contexts);
 
@@ -836,32 +888,8 @@ public abstract class AbstractIntegrationTest {
         liquibase.setChangeLogParameter( "loginuser", testSystem.getUsername());
         List<ChangeSet> list = liquibase.listUnrunChangeSets(new Contexts(this.contexts), new LabelExpression());
 
-        assertTrue("querying the changelog table on an empty target should return at least 1 un-run changeset", !list.isEmpty());
+        assertFalse("querying the changelog table on an empty target should return at least 1 un-run changeset", list.isEmpty());
 
-    }
-
-    @Test
-    @SuppressWarnings("squid:S2699") // Successful execution qualifies as test success.
-    public void testAbsolutePathChangeLog() throws Exception {
-        assumeNotNull(this.getDatabase());
-
-        String fileUrlToChangeLog = getClass().getResource("/" + includedChangeLog).toString();
-        assertTrue(fileUrlToChangeLog.startsWith("file:/"));
-
-        String absolutePathOfChangeLog = fileUrlToChangeLog.replaceFirst("file:\\/", "");
-        if (System.getProperty("os.name").startsWith("Windows ")) {
-            absolutePathOfChangeLog = absolutePathOfChangeLog.replace('/', '\\');
-        } else {
-            absolutePathOfChangeLog = "/" + absolutePathOfChangeLog;
-        }
-        Liquibase liquibase = createLiquibase(absolutePathOfChangeLog, new FileSystemResourceAccessor(File.listRoots()));
-        clearDatabase();
-
-        liquibase.update(this.contexts);
-
-        liquibase.update(this.contexts); //try again, make sure there are no errors
-
-        clearDatabase();
     }
 
     private void dropDatabaseChangeLogTable(String catalog, String schema, Database database) {
@@ -964,8 +992,25 @@ public abstract class AbstractIntegrationTest {
         try {
             liquibase.update(new Contexts());
             fail("Did not fail with invalid include");
-        } catch (ChangeLogParseException ignored) {
+        } catch (CommandExecutionException executionException) {
             //expected
+        }
+
+        LockService lockService = LockServiceFactory.getInstance().getLockService(database);
+        assertFalse(lockService.hasChangeLogLock());
+    }
+
+    @Test
+    public void testInvalidSqlThrowsException() throws Exception {
+        assumeNotNull(this.getDatabase());
+        Liquibase liquibase = createLiquibase(invalidSqlChangeLog);
+        Throwable exception = null;
+        try {
+            liquibase.update(new Contexts());
+            fail("Did not fail with invalid SQL");
+        } catch (CommandExecutionException executionException) {
+            exception = ExceptionUtil.findExceptionInCauseChain(executionException.getCause(), DatabaseException.class);
+            Assert.assertTrue(exception.getCause() instanceof DatabaseException);
         }
 
         LockService lockService = LockServiceFactory.getInstance().getLockService(database);
@@ -1061,7 +1106,7 @@ public abstract class AbstractIntegrationTest {
 
         CreateTableStatement clobTableCreator = new CreateTableStatement(
                 database.getLiquibaseCatalogName(), database.getLiquibaseSchemaName(), "tableWithClob");
-        clobTableCreator.addColumn("clobColumn", new ClobType());
+        clobTableCreator.addColumn("clobColumn", DataTypeFactory.getInstance().fromDescription("clob", database));
         InsertExecutablePreparedStatement insertStatement = new InsertExecutablePreparedStatement(
                 database, database.getLiquibaseCatalogName(), database.getLiquibaseSchemaName(),
                 "tableWithClob", Arrays.asList(clobColumn),
@@ -1082,6 +1127,61 @@ public abstract class AbstractIntegrationTest {
         TableExistsPrecondition precondition = new TableExistsPrecondition();
         precondition.setTableName("standardTypesTest");
         precondition.check(this.getDatabase(), null, null, null);
+    }
+
+    @Test
+    public void testTableIsEmptyPrecondition() throws Exception {
+        assumeNotNull(this.getDatabase());
+        runChangeLogFile(commonChangeLog);
+
+        checkTableIsEmptyPrecondition("empty_table", 0L);
+        checkTableIsEmptyPrecondition("single_row_table", 1L);
+        checkTableIsEmptyPrecondition("multi_row_table", 2L);
+    }
+
+    private void checkTableIsEmptyPrecondition(String tableName, long actualRows) throws PreconditionFailedException, PreconditionErrorException {
+        TableIsEmptyPrecondition precondition = new TableIsEmptyPrecondition();
+        precondition.setTableName(tableName);
+        if (actualRows == 0L) {
+            precondition.check(this.getDatabase(), null, null, null);
+        } else {
+            PreconditionFailedException ex = assertThrows(PreconditionFailedException.class, () -> precondition.check(this.getDatabase(), null, null, null));
+            assertEquals(1, ex.getFailedPreconditions().size());
+
+            String expectedMessage = String.format("Table %s is not empty.", tableName);
+            assertEquals(expectedMessage, ex.getFailedPreconditions().get(0).getMessage());
+        }
+    }
+
+    @Test
+    public void testRowCountPrecondition() throws Exception {
+        assumeNotNull(this.getDatabase());
+        runChangeLogFile(commonChangeLog);
+
+        checkRowCountPrecondition("empty_table", 0L, 0L);
+        checkRowCountPrecondition("empty_table", 1L, 0L);
+        checkRowCountPrecondition("empty_table", Long.MAX_VALUE, 0L);
+        checkRowCountPrecondition("single_row_table", 0L, 1L);
+        checkRowCountPrecondition("single_row_table", 1L, 1L);
+        checkRowCountPrecondition("single_row_table", Long.MAX_VALUE, 1L);
+        checkRowCountPrecondition("multi_row_table", 0L, 2L);
+        checkRowCountPrecondition("multi_row_table", 2L, 2L);
+        checkRowCountPrecondition("multi_row_table", Long.MAX_VALUE, 2L);
+    }
+
+    private void checkRowCountPrecondition(String tableName, long expectedRows, long actualRows) throws PreconditionFailedException, PreconditionErrorException {
+        RowCountPrecondition precondition = new RowCountPrecondition();
+        precondition.setTableName(tableName);
+        precondition.setExpectedRows(expectedRows);
+        if (expectedRows == actualRows) {
+            precondition.check(this.getDatabase(), null, null, null);
+        } else {
+            PreconditionFailedException ex = assertThrows(PreconditionFailedException.class, () -> precondition.check(this.getDatabase(), null, null, null));
+            assertEquals(1, ex.getFailedPreconditions().size());
+
+            String expectedMessage = String.format("Table %s does not have the expected row count of %s. It contains %s rows", tableName, expectedRows, actualRows);
+            assertEquals(expectedMessage, ex.getFailedPreconditions().get(0).getMessage());
+        }
     }
 
     protected Database getDatabase(){
@@ -1115,10 +1215,224 @@ public abstract class AbstractIntegrationTest {
         liquibase.update(contexts);
 
         Connection conn = ((JdbcConnection) database.getConnection()).getUnderlyingConnection();
-        conn.createStatement().execute("update DATABASECHANGELOG set md5sum = '1:xxx'");
-        conn.commit();
+        conn.createStatement().execute("update DATABASECHANGELOG set md5sum = null");
+        if (!conn.getAutoCommit()) {
+            conn.commit();
+        }
 
         liquibase.getDatabase().getRanChangeSetList();
         liquibase.update(contexts);
+    }
+
+    @Ignore //this test is still randomly failing, and the underlying problem needs to be figured out
+    @Test
+    public void testThatMultipleJVMsCanApplyChangelog() throws Exception {
+        clearDatabase();
+
+        List<ProcessBuilder> processBuilders = Arrays.asList(
+            prepareExternalLiquibaseProcess(),
+            prepareExternalLiquibaseProcess(),
+            prepareExternalLiquibaseProcess()
+        );
+
+        List<Process> processes = new ArrayList<>();
+        for (ProcessBuilder builder : processBuilders) {
+            Process process = builder.redirectErrorStream(true).start();
+            processes.add(process);
+        }
+
+        List<Tuple2<Integer, String>> outputs = new ArrayList<>();
+        for (Process process : processes) {
+            boolean exitedWithinTimeout = !process.waitFor(2, TimeUnit.MINUTES);
+
+            String output;
+            try (BufferedReader input = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                output = input.lines().limit(100).collect(Collectors.joining(System.lineSeparator()));
+            }
+
+            if (!exitedWithinTimeout) {
+                process.destroy();
+            }
+
+            outputs.add(new Tuple2<>(process.exitValue(), output));
+        }
+
+        for (Tuple2<Integer, String> output : outputs) {
+            if (output.getFirst() == 0) {
+                continue;
+            }
+
+            fail("Migration JVM failed with exit code " + output.getFirst() + ": " + output.getSecond());
+        }
+    }
+
+    @Test
+    public void testPathFromChangeObjectIsDeployed() throws Exception {
+        assumeNotNull(this.getDatabase());
+        Liquibase liquibase;
+        clearDatabase();
+
+        String pathToSet = "changelogs/common/commentTest.sql";
+
+        liquibase = createLiquibase(pathChangeLog);
+        liquibase.update(this.contexts);
+
+        assertTrue(liquibase.getDatabaseChangeLog().getChangeSets().stream().allMatch(changeSet -> changeSet.getDescription().contains(pathToSet)));
+    }
+
+    @Test
+    public void allowsDbChangelogTableNameAsLowerCase() throws DatabaseException {
+        clearDatabase();
+        String oldDbChangelogTableName = this.getDatabase().getDatabaseChangeLogTableName();
+        try {
+            getDatabase().setDatabaseChangeLogTableName("lowercase");
+            CommandScope commandScope = new CommandScope(UpdateCommandStep.COMMAND_NAME);
+            commandScope.addArgumentValue(DbUrlConnectionArgumentsCommandStep.DATABASE_ARG, getDatabase());
+            commandScope.addArgumentValue(UpdateCommandStep.CHANGELOG_FILE_ARG, objectQuotingStrategyChangeLog);
+            commandScope.execute();
+        } catch (Exception e) {
+            Assert.fail("Should not fail. Reason: " + e.getMessage());
+        } finally {
+            getDatabase().setDatabaseChangeLogTableName(oldDbChangelogTableName);
+        }
+    }
+
+    @Test
+    public void verifyIndexIsCreatedWhenAssociatedWithPropertyIsSetAsNone() throws DatabaseException {
+       clearDatabase();
+        try {
+            Database database = getDatabase();
+            CommandScope commandScope = new CommandScope(UpdateCommandStep.COMMAND_NAME);
+            commandScope.addArgumentValue(DbUrlConnectionArgumentsCommandStep.DATABASE_ARG, database);
+            commandScope.addArgumentValue(UpdateCommandStep.CHANGELOG_FILE_ARG, indexWithAssociatedWithChangeLog);
+            commandScope.execute();
+
+            final CommandScope snapshotScope = new CommandScope("snapshot");
+            snapshotScope.addArgumentValue(DbUrlConnectionArgumentsCommandStep.DATABASE_ARG, database);
+            snapshotScope.addArgumentValue(SnapshotCommandStep.SNAPSHOT_FORMAT_ARG, "json");
+            CommandResults results = snapshotScope.execute();
+            DatabaseSnapshot snapshot = (DatabaseSnapshot) results.getResult("snapshot");
+            Index index = snapshot.get(new Index("idx_test"));
+            Assert.assertNotNull(index );
+        } catch (Exception e) {
+            Assert.fail("Should not fail. Reason: " + e.getMessage());
+        } finally {
+            clearDatabase();
+        }
+
+    }
+
+    @Test
+    public void makeSureNoErrorIsReturnedWhenTableNameIsNotSpecified() throws DatabaseException {
+        // This is a test to validate most of the DBs do not throw an error when tableName is not
+        // specified as part of primaryKeyExistsPrecondition.
+        clearDatabase();
+        String errorMsg = "";
+        try {
+            runUpdate("changelogs/common/preconditions/preconditions.changelog.xml");
+        }catch(CommandExecutionException e) {
+            errorMsg = e.getMessage();
+        }
+        finally {
+            clearDatabase();
+        }
+
+        if(!(database instanceof H2Database || database instanceof MySQLDatabase || database instanceof HsqlDatabase
+                || database instanceof SQLiteDatabase || database instanceof DB2Database)) {
+            Assert.assertTrue(errorMsg.isEmpty());
+        }
+    }
+
+    @Test
+    public void makeSureErrorIsReturnedWhenTableNameIsNotSpecified() throws DatabaseException {
+        // This is a test to validate some DBs do require a tableName as part of primaryKeyExistsPrecondition,
+        // if it's not specified an error will be thrown.
+        clearDatabase();
+        String errorMsg = "";
+        try {
+            runUpdate("changelogs/common/preconditions/preconditions.changelog.xml");
+        }catch(CommandExecutionException e) {
+            errorMsg = e.getMessage();
+        }
+        finally {
+            clearDatabase();
+        }
+
+        if(database instanceof H2Database || database instanceof MySQLDatabase || database instanceof HsqlDatabase
+                || database instanceof SQLiteDatabase || database instanceof DB2Database) {
+            Assert.assertTrue(errorMsg.contains("Database driver requires a table name to be specified in order to search for a primary key."));
+        }
+    }
+
+    private ProcessBuilder prepareExternalLiquibaseProcess() {
+        String javaHome = System.getProperty("java.home");
+        String javaBin = javaHome + File.separator + "bin" + File.separator + "java";
+        String classpath = System.getProperty("java.class.path");
+
+        List<String> command = new LinkedList<>();
+        command.add(javaBin);
+        command.add("-cp");
+        command.add(classpath);
+        command.add(ApplyTestChangelog.class.getName());
+
+        command.add(includedChangeLog);
+        command.add(testSystem.getConnectionUrl());
+        command.add(testSystem.getUsername());
+        command.add(testSystem.getPassword());
+        command.add(contexts);
+
+        return new ProcessBuilder(command);
+    }
+
+    protected void runUpdate(String changelog) throws CommandExecutionException {
+        CommandScope commandScope = new CommandScope(UpdateCommandStep.COMMAND_NAME);
+        commandScope.addArgumentValue(DbUrlConnectionArgumentsCommandStep.URL_ARG, testSystem.getConnectionUrl());
+        commandScope.addArgumentValue(DbUrlConnectionArgumentsCommandStep.USERNAME_ARG, testSystem.getUsername());
+        commandScope.addArgumentValue(DbUrlConnectionArgumentsCommandStep.PASSWORD_ARG, testSystem.getPassword());
+        commandScope.addArgumentValue(UpdateCommandStep.CHANGELOG_FILE_ARG, changelog);
+        commandScope.execute();
+    }
+
+    protected List<ChangeSet> generateChangelog() throws LiquibaseException{
+        DiffResult diffResult = DiffGeneratorFactory.getInstance().compare(database, null, new CompareControl());
+
+        DiffToChangeLog changeLogWriter = new DiffToChangeLog(diffResult, new DiffOutputControl(false, false, false, null));
+        List<ChangeSet> changeSets = changeLogWriter.generateChangeSets();
+        return changeSets;
+    }
+
+    public static final class ApplyTestChangelog {
+
+        private static void initLogLevel() {
+            java.util.logging.Logger liquibaseLogger = java.util.logging.Logger.getLogger("liquibase");
+
+            final JavaLogService logService = (JavaLogService) Scope.getCurrentScope().get(Scope.Attr.logService, LogService.class);
+            logService.setParent(liquibaseLogger);
+            java.util.logging.Logger rootLogger = java.util.logging.Logger.getLogger("");
+
+            rootLogger.setLevel(java.util.logging.Level.INFO);
+            liquibaseLogger.setLevel(java.util.logging.Level.INFO);
+
+            for (java.util.logging.Handler handler : rootLogger.getHandlers()) {
+                handler.setLevel(java.util.logging.Level.INFO);
+            }
+        }
+
+        public static void main(String[] args) throws Exception {
+            String changeLogFile = Objects.requireNonNull(args[0], "Changelog is required");
+            String url = Objects.requireNonNull(args[1], "JDBC url is required");
+            String username = Objects.requireNonNull(args[2], "JDBC username is required");
+            String password = Objects.requireNonNull(args[3], "JDBC password is required");
+            String contexts = Objects.requireNonNull(args[4], "Liquibase contexts is required");
+
+            initLogLevel();
+
+            DatabaseConnection connection = new JdbcConnection(DriverManager.getConnection(url, username, password));
+            ResourceAccessor fileOpener = new JUnitResourceAccessor();
+
+            Liquibase liquibase = new Liquibase(changeLogFile, fileOpener, DatabaseFactory.getInstance().findCorrectDatabaseImplementation(connection));
+            liquibase.setChangeLogParameter("loginuser", username);
+            liquibase.update(contexts);
+        }
     }
 }

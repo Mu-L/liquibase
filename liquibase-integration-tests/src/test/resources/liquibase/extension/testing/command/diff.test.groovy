@@ -12,13 +12,18 @@ final int PATTERN_FLAGS = Pattern.MULTILINE|Pattern.DOTALL|Pattern.CASE_INSENSIT
 CommandTests.define {
     command = ["diff"]
     signature = """
-Short Description: Compare two databases
+Short Description: Outputs a description of differences.  If you have a Liquibase Pro key, you can output the differences as JSON using the --format=JSON option
 Long Description: NOT SET
 Required Args:
   referenceUrl (String) The JDBC reference database connection URL
-  url (String) The JDBC target database connection URL
+    OBFUSCATED
+  url (String) The JDBC database connection URL
     OBFUSCATED
 Optional Args:
+  defaultCatalogName (String) The default catalog name to use for the database connection
+    Default: null
+  defaultSchemaName (String) The default schema name to use for the database connection
+    Default: null
   diffTypes (String) Types of objects to compare
     Default: null
   driver (String) The JDBC driver class
@@ -29,17 +34,33 @@ Optional Args:
     Default: null
   includeObjects (String) Objects to include in diff
     Default: null
-  password (String) The target database password
+  outputSchemas (String) Output schemas names. This is a CSV list.
+    Default: null
+  password (String) Password to use to connect to the database
     Default: null
     OBFUSCATED
+  referenceDefaultCatalogName (String) The default catalog name to use for the reference database connection
+    Default: null
+  referenceDefaultSchemaName (String) The default schema name to use for the reference database connection
+    Default: null
+  referenceDriver (String) The JDBC driver class for the reference database
+    Default: null
+  referenceDriverPropertiesFile (String) The JDBC driver properties file for the reference database
+    Default: null
+  referenceLiquibaseCatalogName (String) Reference catalog to use for Liquibase objects
+    Default: null
+  referenceLiquibaseSchemaName (String) Reference schema to use for Liquibase objects
+    Default: null
   referencePassword (String) The reference database password
     Default: null
     OBFUSCATED
+  referenceSchemas (String) Schemas names on reference database to use in diff. This is a CSV list.
+    Default: null
   referenceUsername (String) The reference database username
     Default: null
   schemas (String) Schemas to include in diff
     Default: null
-  username (String) The target database username
+  username (String) Username to use to connect to the database
     Default: null
 """
 
@@ -292,7 +313,7 @@ Changed Column(s): NONE
                 Pattern.compile(".*Missing Table.s.*SECONDARYTABLE.*Unexpected Table.s.*PRIMARYTABLE.*Changed Table.s.*NONE", PATTERN_FLAGS),
                 Pattern.compile(".*Missing Column.s.*SECONDARYTABLE.ID.*SHAREDTABLE.NAME.*", PATTERN_FLAGS),
                 Pattern.compile(".*Unexpected Column.s.*PRIMARYTABLE.ID.*SHAREDTABLE.ID.*Changed Column.s.*", PATTERN_FLAGS),
-                Pattern.compile(".*SHAREDTABLE.SHARED.*type changed from .VARCHAR.3.*to .VARCHAR.255.*", PATTERN_FLAGS)
+                Pattern.compile(".*SHAREDTABLE.SHARED.*type changed from .CHARACTER VARYING.3.*to .CHARACTER VARYING.255.*", PATTERN_FLAGS)
         ]
     }
 
